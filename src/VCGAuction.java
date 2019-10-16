@@ -1,6 +1,8 @@
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -8,6 +10,7 @@ import java.util.Map;
 
 public class VCGAuction {
 
+    //Key: Item, List: bid values
     private Map<Integer, List<Integer>> bidMapItem;
     private List<BidInfo> bidMaxWelfareList;
     private List<BidInfo> bidCurWelfareList;
@@ -32,6 +35,28 @@ public class VCGAuction {
         }
     }
 
+    private Map<Integer, List<Integer>> excludeBidder(int bidder) {
+        Map<Integer, List<Integer>> curBidMapItem = new HashMap<>();
+
+        for (int i = 0; i < numItems; i++) {
+            List<Integer> valueList = new ArrayList<>();
+            for(int j = 0; j < numBidders; j++){
+                valueList.add(bidMapItem.get(i).get(j));
+            }
+            valueList.remove(bidder);
+            curBidMapItem.put(i, valueList);
+        }
+        System.out.println(bidder);
+        for (int i = 0; i < numBidders - 1; i++) {
+            for(int j = 0; j < numItems; j++){
+                System.out.print(curBidMapItem.get(j).get(i) + "   ");
+            }
+            System.out.println();
+        }
+
+        return curBidMapItem;
+    }
+
     private void auction() {
         for (int i = 0; i < numBidders; i++) {
             findMaxWelfare(null, i, 0);
@@ -41,18 +66,23 @@ public class VCGAuction {
             BidInfo bidInfo = bidMaxWelfareList.get(i);
             System.out.println(bidInfo.toString());
         }
-        System.out.println("Bidder: payment = maxWelfare - curWelfare");
-        for (BidInfo bidInfo: bidMaxWelfareList) {
-            for(int i = 0; i<numBidders; i++){
-                if(i != bidInfo.bidder)
-                    findCurWelfare(null, i, 0, bidInfo.bidder);
+        System.out.println("Max social Welfare = " + maxWelfare);
+        System.out.println("payment = curWelfareOptimalWithoutI - maxWelfareWithoutI");
+        for (BidInfo bidInfo : bidMaxWelfareList) {
+            Map<Integer, List<Integer>> curBidMapItem = excludeBidder(bidInfo.bidder);
+
+            for (int i = 0; i < numBidders - 1; i++) {
+                findCurWelfare(null, i, 0, curBidMapItem);
             }
-                int payment = maxWelfare - curWelfare;
-                for (int i = 0; i < numItems; i++) {
-                    BidInfo bidInfo2 = bidCurWelfareList.get(i);
+            int maxWithoutI = maxWelfare - bidInfo.value;
+            int payment = curWelfare - maxWithoutI;
+
+            for (int i = 0; i < numItems; i++) {
+                BidInfo bidInfo2 = bidCurWelfareList.get(i);
                 System.out.println(bidInfo2.toString());
             }
-            System.out.println("Bidder:" + (bidInfo.bidder + 1) + ": " + payment + "=" + maxWelfare + "-" + curWelfare);
+            System.out.println("Bidder:" + (bidInfo.bidder + 1) + ": " + payment + "=" + curWelfare + "-" + maxWithoutI);
+            curWelfare = 0;
         }
     }
 
@@ -87,32 +117,19 @@ public class VCGAuction {
         return root;
     }
 
-    private void addChildHelper(int item, BidTree root, int exclude) {
-        BidInfo bidInfo;
-        if (item < numItems) {
-            for (int child_j = 0; child_j < numBidders; child_j++) {
-                if (!root.isParent(child_j, root) && root.data.bidder != child_j && child_j != exclude) {
-                    bidInfo = new BidInfo(child_j, bidMapItem.get(item).get(child_j), item);
-                    root.addChild(bidInfo);
-                }
-            }
-        }
-    }
-
-
-    private BidTree findCurWelfare(List<BidTree> childList, int bidder, int item, int exclude) {
+    private BidTree findCurWelfare(List<BidTree> childList, int bidder, int item, Map<Integer, List<Integer>> curBidMapItem) {
         BidTree root = new BidTree();
         if (childList == null) {
-            BidInfo bidInfo = new BidInfo(bidder, bidMapItem.get(item).get(bidder), item);
+            BidInfo bidInfo = new BidInfo(bidder, curBidMapItem.get(item).get(bidder), item);
             root = new BidTree(bidInfo);
 
-            addChildHelper(item + 1, root, exclude);
-            findCurWelfare(root.children, bidder, item + 1, exclude);
+            addChildHelper(item + 1, root, curBidMapItem);
+            findCurWelfare(root.children, bidder, item + 1, curBidMapItem);
         } else if (item < numItems - 1) {
             for (int i = 0; i < childList.size(); i++) {
                 root = childList.get(i);
-                addChildHelper(item + 1, root, exclude);
-                findCurWelfare(root.children, bidder, item + 1, exclude);
+                addChildHelper(item + 1, root, curBidMapItem);
+                findCurWelfare(root.children, bidder, item + 1, curBidMapItem);
             }
         } else {
             for (int i = 0; i < childList.size(); i++) {
@@ -131,8 +148,33 @@ public class VCGAuction {
         return root;
     }
 
+    private void addChildHelper(int item, BidTree root, Map<Integer, List<Integer>> curBidMapItem) {
+        BidInfo bidInfo;
+        if (item < numItems) {
+            for (int child_j = 0; child_j < numBidders - 1; child_j++) {
+                if (!root.isParent(child_j, root) && root.data.bidder != child_j) {
+                    bidInfo = new BidInfo(child_j, curBidMapItem.get(item).get(child_j), item);
+                    root.addChild(bidInfo);
+                }
+            }
+        }
+    }
+
+    private void addChildHelper(int item, BidTree root, int exclude) {
+        BidInfo bidInfo;
+        if (item < numItems) {
+            for (int child_j = 0; child_j < numBidders; child_j++) {
+                if (!root.isParent(child_j, root) && root.data.bidder != child_j && child_j != exclude) {
+                    bidInfo = new BidInfo(child_j, bidMapItem.get(item).get(child_j), item);
+                    root.addChild(bidInfo);
+                }
+            }
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        File f = new File("C:\\Users\\Shilei Lin\\IdeaProjects\\VCG\\src\\bidder.mat");
+        Path path = Paths.get("");
+        File f = new File(path.toAbsolutePath().toString() + "\\src\\bidder.mat");
         BufferedReader bufferedReader = new BufferedReader(new FileReader(f));
 
         String line = bufferedReader.readLine();
@@ -176,7 +218,7 @@ public class VCGAuction {
         }
 
         public String toString() {
-            return "item:" + (this.item + 1) + " bidder:" + (this.bidder + 1) + " value:" + this.value;
+            return "item:" + (this.item ) + " bidder:" + (this.bidder ) + " value:" + this.value;
         }
     }
 
@@ -215,10 +257,8 @@ public class VCGAuction {
 
         private int totalWelfare() {
             if (this.parent == null) {
-                //System.out.print(data.value);
                 return data.value;
             } else {
-                //System.out.print(data.value + " + ");
                 return data.value + parent.totalWelfare();
             }
         }
